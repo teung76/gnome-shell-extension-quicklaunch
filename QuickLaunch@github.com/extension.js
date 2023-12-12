@@ -3,22 +3,21 @@
 
 const GETTEXT_DOMAIN = "QuickLaunch-extension";
 
-const { Atk, Gio, GLib, Gtk, GObject, Shell, St } = imports.gi;
-const ExtensionUtils = imports.misc.extensionUtils;
+import Atk from 'gi://Atk';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import Gtk from 'gi://Gtk';
+import GObject from 'gi://GObject';
+import Shell from 'gi://Shell';
+import St from 'gi://St';
 
-const Main = imports.ui.main;
-const Mainloop = imports.mainloop;
+import * as Main from 'resource:///org/gnome/shell/ui/main.js'
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as FileUtils from 'resource:///org/gnome/shell/misc/fileUtils.js';
+import * as Util from 'resource:///org/gnome/shell/misc/util.js';
 
-const PanelMenu = imports.ui.panelMenu;
-const PopupMenu = imports.ui.popupMenu;
-const Lang = imports.lang;
-const FileUtils = imports.misc.fileUtils;
-const Util = imports.misc.util;
-
-const Me = ExtensionUtils.getCurrentExtension();
-
-const Gettext = imports.gettext.domain(GETTEXT_DOMAIN);
-const _ = Gettext.gettext;
+import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const AppsPath = GLib.get_home_dir() + '/.local/share/gnome-shell/quicklaunch';
 const AppsPaths = [ GLib.get_home_dir() + '/.local/user/apps', AppsPath ];
@@ -35,7 +34,7 @@ class PopupGiconMenuItem extends PopupMenu.PopupBaseMenuItem {
                 gicon: gIcon,
                 style_class: 'popup-menu-icon'
             });
-        this.actor.add_child(this._icon, { align: St.Align.END });
+        this.actor.add_child(this._icon);
         this.actor.add_child(this.label);
     }
 });
@@ -53,7 +52,7 @@ class QuickLaunch extends PanelMenu.Button {
         this.actor.add_actor(this._icon);
         this.actor.add_style_class_name('panel-status-button');
 
-        this.connect('destroy', Lang.bind(this, this._onDestroy));
+        this.connect('destroy', () => this._onDestroy());
         this._setupDirectory();
         this._setupAppMenuItems();
         this._setupNewEntryDialog();
@@ -62,7 +61,8 @@ class QuickLaunch extends PanelMenu.Button {
 
     _onDestroy() {
 //        this._monitor.cancel();
-        Mainloop.source_remove(this._appDirectoryTimeoutId);
+        if (this._appDirectoryTimeoutId > 0)
+            GLib.Source.remove(this._appDirectoryTimeoutId);
     }
 
     /**
@@ -71,7 +71,7 @@ class QuickLaunch extends PanelMenu.Button {
     _setupDirectory() {
         let dir = Gio.file_new_for_path(AppsPath);
         if (!dir.query_exists(null)) {
-            global.log('create dir ' + AppsPath );
+            console.log('create dir ' + AppsPath );
             dir.make_directory_with_parents(null);
         }
         this._appDirectory = dir;
@@ -94,16 +94,16 @@ class QuickLaunch extends PanelMenu.Button {
             return;
         this._monitor = this._appDirectory.monitor_directory(Gio.FileMonitorFlags.NONE, null);
         this._appDirectoryTimeoutId = 0;
-        this._monitor.connect('changed', Lang.bind(this, function () {
+        this._monitor.connect('changed', () => {
             if (this._appDirectoryTimeoutId > 0)
                 return;
             /* Defensive event compression */
-            this._appDirectoryTimeoutId = Mainloop.timeout_add(100, Lang.bind(this, function () {
+            this._appDirectoryTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
                 this._appDirectoryTimeoutId = 0;
                 this._reloadAppMenu();
-                return false;
-            }));
-        }));
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     /**
@@ -120,7 +120,7 @@ class QuickLaunch extends PanelMenu.Button {
     _createDefaultApps(path) {
         let _appsDir = Gio.file_new_for_path(path);
         if (!_appsDir.query_exists(null)) {
-            global.log('App path ' + path + ' could not be opened!');
+            console.log('App path ' + path + ' could not be opened!');
             return;
         }
 
@@ -130,7 +130,7 @@ class QuickLaunch extends PanelMenu.Button {
         try {
             fileEnum = _appsDir.enumerate_children('standard::*', Gio.FileQueryInfoFlags.NONE, null);
         } catch (e) {
-            global.logError('' + e);
+            console.logError('' + e);
             return;
         }
 
@@ -156,16 +156,17 @@ class QuickLaunch extends PanelMenu.Button {
         // from http://www.roojs.com/seed/gir-1.2-gtk-3.0/gjs/
         let appInfo = Gio.DesktopAppInfo.new_from_filename(desktopPath);
         if (!appInfo) {
-            global.log('App for desktop file ' + desktopPath + ' could not be loaded!');
+            console.log('App for desktop file ' + desktopPath + ' could not be loaded!');
             return null;
         }
 
         let menuItem = this._createAppItem(appInfo, function(w, ev) {
             if(!appInfo.launch([], null)) {
-                global.log('Failed to launch ' + appInfo.get_commandline);
+                console.log('Failed to launch ' + appInfo.get_commandline);
             }
         });
 
+/* // Util.lowerBound not exist in gnome shell 45
         // alphabetically sort list by app name
         let sortKey = appInfo.get_name() || desktopPath;
         let pos = Util.lowerBound(this.menu._getMenuItems(), sortKey, function (a,b) {
@@ -174,7 +175,8 @@ class QuickLaunch extends PanelMenu.Button {
             else
                 return -1;
         });
-        this.menu.addMenuItem(menuItem, pos);
+        this.menu.addMenuItem(menuItem, pos);*/
+        this.menu.addMenuItem(menuItem);
         return menuItem;
     }
 
@@ -183,9 +185,9 @@ class QuickLaunch extends PanelMenu.Button {
      */
     _createAppItem(appInfo, callback) {
         let menuItem = new PopupGiconMenuItem(appInfo.get_name(), appInfo.get_icon(), {});
-        menuItem.connect('activate', Lang.bind(this, function (menuItem, event) {
+        menuItem.connect('activate', (menuItem, event) => {
                     callback(menuItem, event);
-        }));
+        });
 
         return menuItem;
     }
@@ -196,17 +198,17 @@ class QuickLaunch extends PanelMenu.Button {
     _setupNewEntryDialog() {
         let entryCreator = new DesktopEntryCreator();
         if (! entryCreator.hasEditor()) {
-            global.log('gnome-desktop-item-edit is not installed!');
+            console.log('gnome-desktop-item-edit is not installed!');
             return;
         }
         let item = new PopupMenu.PopupSeparatorMenuItem();
         this.menu.addMenuItem(item);
         item = new PopupMenu.PopupMenuItem(_("Add new launcher..."));
-        item.connect('activate', Lang.bind(this, function(){
+        item.connect('activate', () => {
             if (!this._appDirectory.query_exists(null))
                 return;
             entryCreator.createEntry(AppsPath);
-        }));
+        });
         this.menu.addMenuItem(item);
     }
 });
@@ -248,17 +250,14 @@ class DesktopEntryCreator {
 /**
  * Extension Setup
  */
-function init() {
-}
+export default class QuickLaunchExtension extends Extension {
+    enable() {
+        this._indicator = new QuickLaunch();
+        Main.panel.addToStatusArea(_(IndicatorName), this._indicator, 1, "left");
+    }
 
-let _indicator;
-
-function enable() {
-    _indicator = new QuickLaunch();
-    Main.panel.addToStatusArea(_(IndicatorName), _indicator, 1, "left");
-}
-
-function disable() {
-    _indicator.destroy();
-    _indicator = null;
+    disable() {
+        this._indicator.destroy();
+        delete this._indicator;
+    }
 }
