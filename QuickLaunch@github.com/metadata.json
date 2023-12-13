@@ -3,12 +3,7 @@
   "uuid": "QuickLaunch@github.com", 
   "description": "Quick Launch - Launch custom made .desktop files from a directory", 
   "shell-version": [ 
-    "3.38",
-    "40",
-    "41",
-    "42",
-    "43",
-    "44"
+    "45"
   ], 
   "url": "https://github.com/manno/gnome-shell-extension-quicklaunch"
 }
